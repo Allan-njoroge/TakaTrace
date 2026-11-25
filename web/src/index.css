@@ -1,0 +1,59 @@
+@import "tailwindcss";
+
+@font-face { font-family: "Manrope"; src: url("/fonts/Manrope-Regular.woff2") format("woff2"); font-weight: 400; font-display: swap; }
+@font-face { font-family: "Manrope"; src: url("/fonts/Manrope-Medium.woff2") format("woff2"); font-weight: 500; font-display: swap; }
+@font-face { font-family: "Manrope"; src: url("/fonts/Manrope-SemiBold.woff2") format("woff2"); font-weight: 600; font-display: swap; }
+@font-face { font-family: "Manrope"; src: url("/fonts/Manrope-Bold.woff2") format("woff2"); font-weight: 700; font-display: swap; }
+
+@theme {
+  --font-sans: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --color-forest-800: #24493D;
+  --color-forest-700: #2E5B4C;
+  --color-forest-500: #4E7D6C;
+  --color-lime-300: #C8EE7E;
+  --color-lime-100: #EEF8D6;
+  --color-cream-100: #F2EFE6;
+  --color-paper: #FFFFFF;
+  --color-ink-900: #17251F;
+  --color-ink-600: #5E6E67;
+  --color-line-200: #E2DED3;
+  --color-danger-600: #B4382B;
+  --color-danger-100: #F9E3DF;
+  --color-amber-600: #B27A12;
+  --color-amber-100: #FBF0D6;
+  /* Not in the spec's token table (section 4.2) — amber-600 text fails WCAG AA contrast (~3.3:1)
+     on both amber-100 and white; this darker shade is for text only, never for icons/borders,
+     which stay amber-600 to match the spec exactly. See FRONTEND_PROGRESS.md phase 10 notes. */
+  --color-amber-700: #7A530D;
+
+  --radius-panel: 32px;
+  --radius-card: 16px;
+  --radius-input: 8px;
+}
+
+html { color-scheme: light; }
+body { @apply bg-paper text-ink-900 font-sans antialiased; }
+
+/* Skip link: visible only when focused, used by the AppShell and PublicLayout */
+.skip-link {
+  @apply sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[100]
+    focus:rounded-input focus:bg-paper focus:px-4 focus:py-2 focus:text-ink-900 focus:outline-2
+    focus:outline-forest-700 focus:outline-offset-2;
+}
+
+/* The Verified seal (spec 4.6): slow continuous rotation on Home, a one-time stamp-in on the verify result page. */
+@keyframes seal-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes seal-stamp {
+  from { transform: scale(0.6); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+.seal-spin { animation: seal-spin 30s linear infinite; }
+.seal-stamp { animation: seal-stamp 300ms ease-out; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

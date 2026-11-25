@@ -1,0 +1,16 @@
+{
+  "nav": {
+    "home": "Home",
+    "howItWorks": "How it works",
+    "verify": "Verify",
+    "transparency": "Transparency",
+    "signIn": "Sign in",
+    "dialUssd": "Dial {{code}}"
+  },
+  "common": {
+    "retry": "Retry",
+    "loading": "Loading…",
+    "copy": "Copy",
+    "copied": "Copied"
+  }
+}
