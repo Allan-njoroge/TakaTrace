@@ -1,0 +1,54 @@
+# Node modules
+/node_modules
+
+# Compilation output
+/dist
+
+# pnpm deploy output
+/bundle
+
+# Hardhat Build Artifacts
+/artifacts
+
+# Hardhat compilation (v2) support directory
+/cache
+
+# Typechain output
+/types
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Hardhat coverage reports
+/coverage
+
+# Gas snapshot files
+/.gas-snapshot
+
+.agents
+.claude
+AGENTS.md
+CLAUDE.md
+
+# Snapshot cheatcodes output
+/snapshots
+
+server/data/
+.env
+web/node_modules/
+web/dist/
+
+# Backend server (BACKEND_SPEC.md section 3.7)
+server/.env
+server/*.db
+server/*.db-journal
+server/*.db-wal
+server/*.db-shm
+server/src/generated/
+server/uploads-tmp/
+server/node_modules/
+server/dist/
+server/certs/
+.dev-logs/

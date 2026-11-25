@@ -1,0 +1,418 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+// ───────────── Organisations and people ─────────────
+
+model Organization {
+  id          String   @id @default(cuid())
+  type        String   // CENTRE | BRAND | OPERATOR
+  name        String
+  code        String   @unique // 3-8 uppercase letters/digits, used in receipt IDs (centres)
+  county      String?
+  contactName String?
+  email       String?
+  phone       String?
+  status      String   @default("ACTIVE") // ACTIVE | SUSPENDED
+  receiptSeq  Int      @default(0)        // last receipt sequence number (centres)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  users      User[]
+  pickers    Picker[]
+  receipts   Receipt[]
+  prices     Price[]
+  claims     Claim[]
+  eprTargets EprTarget[]
+}
+
+model User {
+  id               String    @id @default(cuid())
+  walletAddress    String    @unique // stored lowercase
+  displayName      String
+  role             String    // ADMIN | CENTRE_OPERATOR | BRAND_OFFICER
+  organizationId   String?
+  organization     Organization? @relation(fields: [organizationId], references: [id])
+  status           String    @default("ACTIVE") // ACTIVE | SUSPENDED
+  onChainApproved  Boolean   @default(false)    // mirrors isBuyingCentre/isBrand/admin
+  onChainCheckedAt DateTime?
+  lastSignInAt     DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  sessions         Session[]
+  receiptsCreated  Receipt[]
+  pricesSet        Price[]
+  disputesDecided  Dispute[]
+  pickersConsented Picker[]
+  photos           Photo[]
+}
+
+model AuthNonce {
+  id        String    @id @default(cuid())
+  address   String    // lowercase
+  nonce     String    @unique
+  message   String    // exact message the user must sign
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([address])
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique // sha256 of the cookie token
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  revokedAt DateTime?
+  ip        String?
+  userAgent String?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Picker {
+  id                 String    @id @default(cuid())
+  code               String    @unique // P-0001...
+  firstName          String
+  lastName           String?
+  phone              String    @unique // E.164, e.g. +254712345678
+  language           String    @default("en") // en | sw
+  idNumberEnc        String?   // AES-256-GCM ciphertext (base64)
+  idNumberLast4      String?
+  consentAt          DateTime
+  consentVersion     String    // e.g. "2026-11-v1"
+  consentByUserId    String
+  consentBy          User      @relation(fields: [consentByUserId], references: [id])
+  smsOptOut          Boolean   @default(false)
+  status             String    @default("ACTIVE") // ACTIVE | SUSPENDED | CONSENT_WITHDRAWN
+  statusReason       String?
+  registeredByOrgId  String
+  registeredByOrg    Organization @relation(fields: [registeredByOrgId], references: [id])
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  receipts Receipt[]
+  payouts  Payout[]
+  disputes Dispute[]
+  sms      SmsMessage[]
+}
+
+model Counter {
+  name  String @id // e.g. "picker"
+  value Int    @default(0)
+}
+
+// ───────────── Prices and targets ─────────────
+
+model Price {
+  id              String   @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id])
+  material        String   // PET | HDPE | LDPE | PP | PS | OTHER
+  pricePerKgCents Int
+  effectiveFrom   DateTime
+  createdByUserId String
+  createdBy       User     @relation(fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
+
+  @@index([organizationId, material, effectiveFrom])
+}
+
+model EprTarget {
+  id          String @id @default(cuid())
+  brandOrgId  String
+  brandOrg    Organization @relation(fields: [brandOrgId], references: [id])
+  year        Int
+  material    String
+  targetGrams Int
+
+  @@unique([brandOrgId, year, material])
+}
+
+// ───────────── Photos ─────────────
+
+model Photo {
+  id               String   @id @default(cuid())
+  cid              String   @unique
+  sha256           String
+  mimeType         String   // image/jpeg after re-encoding
+  sizeBytes        Int
+  width            Int
+  height           Int
+  storage          String   // IPFS_LOCAL | PINATA
+  uploadedByUserId String
+  uploadedBy       User     @relation(fields: [uploadedByUserId], references: [id])
+  createdAt        DateTime @default(now())
+
+  receipts Receipt[]
+}
+
+// ───────────── Receipts (weigh-ins) ─────────────
+
+model Receipt {
+  id                 String    @id @default(cuid())
+  receiptId          String    @unique // on-chain ID, e.g. TT-NRB01-000042
+  organizationId     String
+  organization       Organization @relation(fields: [organizationId], references: [id])
+  pickerId           String
+  picker             Picker    @relation(fields: [pickerId], references: [id])
+  pickerCode         String    // hashed field (snapshot)
+  material           String    // hashed field
+  weightGrams        Int       // hashed field (as kg string)
+  weighedOn          String    // hashed field, YYYY-MM-DD
+  photoId            String?
+  photo              Photo?    @relation(fields: [photoId], references: [id])
+  photoCid           String?   // hashed field (snapshot), "-" in text when null
+  salt               String    // hashed field
+  recordVersion      String    @default("v1")
+  dataHash           String    // 0x... fingerprint at creation
+  pricePerKgCents    Int
+  payoutCents        Int
+  note               String?   // not hashed
+  status             String    @default("DRAFT")
+  // DRAFT | ANCHORING | ANCHORED | ANCHOR_FAILED | NEEDS_REANCHOR | SUPERSEDED
+  claimStatus        String    @default("UNCLAIMED") // UNCLAIMED | CLAIMED
+  disputeFlagOnChain Boolean   @default(false)
+  integrity          String    @default("UNKNOWN") // UNKNOWN | MATCH | MISMATCH | NOT_ON_CHAIN
+  integrityCheckedAt DateTime?
+  anchoredAt         DateTime?
+  correctsId         String?
+  corrects           Receipt?  @relation("Corrections", fields: [correctsId], references: [id])
+  correctedBy        Receipt[] @relation("Corrections")
+  createdByUserId    String
+  createdBy          User      @relation(fields: [createdByUserId], references: [id])
+  idempotencyKey     String?   @unique
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  anchors            Anchor[]
+  claims             Claim[]
+  payouts            Payout[]
+  disputes           Dispute[] @relation("DisputeReceipt")
+  correctionFor      Dispute[] @relation("DisputeCorrection")
+  sms                SmsMessage[]
+
+  @@index([organizationId, createdAt])
+  @@index([status])
+  @@index([claimStatus])
+  @@index([pickerId])
+}
+
+model Anchor {
+  id          String    @id @default(cuid())
+  receiptRef  String
+  receipt     Receipt   @relation(fields: [receiptRef], references: [id])
+  chainId     Int
+  chainEpoch  Int
+  txHash      String
+  fromAddress String
+  blockNumber Int?
+  status      String    // SUBMITTED | CONFIRMED | FAILED | STALE
+  error       String?
+  submittedAt DateTime  @default(now())
+  confirmedAt DateTime?
+
+  @@unique([chainId, chainEpoch, txHash])
+  @@index([receiptRef])
+}
+
+model Claim {
+  id               String   @id @default(cuid())
+  receiptRef       String
+  receipt          Receipt  @relation(fields: [receiptRef], references: [id])
+  brandOrgId       String
+  brandOrg         Organization @relation(fields: [brandOrgId], references: [id])
+  claimedByAddress String
+  txHash           String
+  blockNumber      Int
+  chainEpoch       Int
+  complianceYear   Int
+  productLine      String?
+  status           String   @default("CONFIRMED") // CONFIRMED | STALE
+  claimedAt        DateTime
+  createdAt        DateTime @default(now())
+
+  @@unique([receiptRef, chainEpoch])
+  @@index([brandOrgId, complianceYear])
+}
+
+// ───────────── Payouts ─────────────
+
+model Payout {
+  id                       String    @id @default(cuid())
+  receiptRef               String
+  receipt                  Receipt   @relation(fields: [receiptRef], references: [id])
+  pickerId                 String
+  picker                   Picker    @relation(fields: [pickerId], references: [id])
+  kind                     String    // PURCHASE | TOP_UP
+  amountCents              Int
+  phone                    String    // picker phone at time of payout
+  provider                 String    // MOCK | MPESA_DARAJA
+  status                   String    @default("PENDING") // PENDING | SENT | PAID | FAILED | UNKNOWN
+  belowMinimum             Boolean   @default(false) // true: held back to merge into the picker's next payout
+  attempt                  Int       @default(1)
+  originatorConversationId String    @unique // our idempotency ID per attempt
+  conversationId           String?
+  mpesaTransactionId       String?
+  resultCode               String?
+  resultDesc               String?
+  sentAt                   DateTime?
+  paidAt                   DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  @@index([status])
+  @@index([receiptRef])
+}
+
+// ───────────── SMS and USSD ─────────────
+
+model SmsMessage {
+  id                String   @id @default(cuid())
+  direction         String   // OUTBOUND | INBOUND
+  phone             String
+  pickerId          String?
+  picker            Picker?  @relation(fields: [pickerId], references: [id])
+  receiptRef        String?
+  receipt           Receipt? @relation(fields: [receiptRef], references: [id])
+  template          String?  // RECEIPT_ANCHORED, PAYOUT_PAID, ...
+  body              String
+  provider          String   // MOCK | AFRICASTALKING
+  providerMessageId String?
+  status            String   // QUEUED | SENT | DELIVERED | FAILED | RECEIVED
+  failureReason     String?
+  cost              String?
+  attempts          Int      @default(0)
+  nextAttemptAt     DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([phone, createdAt])
+  @@index([status, nextAttemptAt])
+}
+
+model UssdSession {
+  id          String    @id @default(cuid())
+  sessionId   String    @unique
+  phone       String
+  serviceCode String
+  lastText    String    @default("")
+  language    String    @default("en")
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+}
+
+// ───────────── Disputes ─────────────
+
+model Dispute {
+  id                  String    @id @default(cuid())
+  reference           String    @unique // e.g. "D-0007", shown in SMS/USSD
+  receiptRef          String
+  receipt             Receipt   @relation("DisputeReceipt", fields: [receiptRef], references: [id])
+  pickerId            String?
+  picker              Picker?   @relation(fields: [pickerId], references: [id])
+  openedBy            String    // PICKER_USSD | PICKER_SMS | CENTRE | ADMIN
+  reason              String    // WRONG_WEIGHT | WRONG_MATERIAL | NOT_PAID | OTHER
+  message             String?
+  status              String    @default("OPEN") // OPEN | UNDER_REVIEW | UPHELD | REJECTED
+  flagTxHash          String?
+  unflagTxHash        String?
+  decisionNote        String?
+  decidedByUserId     String?
+  decidedBy           User?     @relation(fields: [decidedByUserId], references: [id])
+  decidedAt           DateTime?
+  correctionRef       String?
+  correction          Receipt?  @relation("DisputeCorrection", fields: [correctionRef], references: [id])
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@index([status])
+  @@index([receiptRef])
+}
+
+// ───────────── Blockchain sync ─────────────
+
+model ChainState {
+  id                 Int      @id @default(1)
+  chainId            Int
+  genesisHash        String
+  contractAddress    String
+  epoch              Int      @default(1)
+  lastProcessedBlock Int      @default(-1)
+  lastError          String?
+  resetDetectedAt    DateTime?
+  updatedAt          DateTime @updatedAt
+}
+
+model ChainEvent {
+  id          String   @id @default(cuid())
+  chainId     Int
+  epoch       Int
+  blockNumber Int
+  txHash      String
+  logIndex    Int
+  name        String
+  args        String   // JSON
+  processedAt DateTime @default(now())
+
+  @@unique([chainId, epoch, txHash, logIndex])
+  @@index([name])
+}
+
+// ───────────── Audit, webhooks, public forms ─────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  at         DateTime @default(now())
+  actorType  String   // USER | SYSTEM | PICKER | WEBHOOK | CHAIN
+  actorId    String?  // user id, masked phone, provider name, contract address
+  action     String   // see BACKEND_SPEC.md section 23.4
+  entityType String
+  entityId   String
+  summary    String
+  before     String?  // JSON
+  after      String?  // JSON
+  ip         String?
+  requestId  String?
+
+  @@index([entityType, entityId])
+  @@index([action, at])
+}
+
+model WebhookCall {
+  id         String   @id @default(cuid())
+  source     String   // AT_SMS_INBOUND | AT_SMS_DELIVERY | AT_USSD | MPESA_RESULT | MPESA_TIMEOUT
+  receivedAt DateTime @default(now())
+  httpStatus Int
+  payload    String   // JSON (phone numbers masked)
+  error      String?
+}
+
+model NewsletterSubscriber {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  unsubscribedAt DateTime?
+  createdAt      DateTime  @default(now())
+}
+
+model ContactMessage {
+  id           String   @id @default(cuid())
+  name         String
+  email        String
+  organization String?
+  topic        String   // GENERAL | REPORT_RECEIPT | JOIN_CENTRE | JOIN_BRAND
+  message      String
+  receiptId    String?
+  status       String   @default("NEW") // NEW | HANDLED
+  ip           String?
+  createdAt    DateTime @default(now())
+}
